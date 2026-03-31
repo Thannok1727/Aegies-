@@ -83,7 +83,9 @@ export default function App() {
   const [isBulkOpen, setIsBulkOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newTopicTitle, setNewTopicTitle] = useState('');
+  const [newTopicKeyword, setNewTopicKeyword] = useState('');
   const [bulkText, setBulkText] = useState('');
+  const [bulkKeyword, setBulkKeyword] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
@@ -112,11 +114,12 @@ export default function App() {
   }, [topics, loading]);
 
   const handleAddTopic = () => {
-    if (!newTopicTitle.trim()) return;
+    if (!newTopicTitle.trim() || !newTopicKeyword.trim()) return;
     const newTopic: Topic = {
       id: crypto.randomUUID(),
       userId: 'local-user',
       title: newTopicTitle.trim(),
+      keyword: newTopicKeyword.trim(),
       status: 'draft',
       progress: 0,
       stages: {
@@ -130,16 +133,18 @@ export default function App() {
     };
     setTopics([...topics, newTopic]);
     setNewTopicTitle('');
+    setNewTopicKeyword('');
     setIsAddOpen(false);
   };
 
   const handleBulkUpload = () => {
-    if (!bulkText.trim()) return;
+    if (!bulkText.trim() || !bulkKeyword.trim()) return;
     const titles = bulkText.split('\n').filter(l => l.trim());
     const newTopics: Topic[] = titles.map((title, index) => ({
       id: crypto.randomUUID(),
       userId: 'local-user',
       title: title.trim(),
+      keyword: bulkKeyword.trim(),
       status: 'draft',
       progress: 0,
       stages: {
@@ -153,16 +158,28 @@ export default function App() {
     }));
     setTopics([...topics, ...newTopics]);
     setBulkText('');
+    setBulkKeyword('');
     setIsBulkOpen(false);
   };
 
   const toggleStage = (topic: Topic, stageKey: keyof Topic['stages']) => {
+    // Check if a task was already completed today for this topic
+    if (topic.lastCompletedAt) {
+      const lastDate = startOfDay(new Date(topic.lastCompletedAt));
+      const today = startOfDay(new Date());
+      if (isSameDay(lastDate, today) && !topic.stages[stageKey].completed) {
+        alert("You can only complete one task per topic per day. Come back tomorrow!");
+        return;
+      }
+    }
+
     const newTopics: Topic[] = topics.map(t => {
       if (t.id !== topic.id) return t;
       
+      const isCompleting = !t.stages[stageKey].completed;
       const newStages = { 
         ...t.stages, 
-        [stageKey]: { ...t.stages[stageKey], completed: !t.stages[stageKey].completed } 
+        [stageKey]: { ...t.stages[stageKey], completed: isCompleting } 
       };
       
       let progress = 0;
@@ -177,7 +194,8 @@ export default function App() {
         stages: newStages,
         progress,
         status,
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
+        lastCompletedAt: isCompleting ? new Date().toISOString() : t.lastCompletedAt
       };
     });
     setTopics(newTopics);
@@ -255,172 +273,221 @@ export default function App() {
           </div>
         </div>
 
-        {/* Desktop Table */}
-        <div className="hidden lg:block bg-white rounded-3xl border border-zinc-200 shadow-sm overflow-hidden">
-          <table className="w-full text-left border-collapse">
-            <thead className="bg-zinc-50 border-b border-zinc-200">
-              <tr>
-                <th className="px-8 py-5 font-bold text-zinc-500 text-xs uppercase tracking-widest">Topic & Schedule</th>
-                <th className="px-8 py-5 font-bold text-zinc-500 text-xs uppercase tracking-widest text-center">Day 1: Write</th>
-                <th className="px-8 py-5 font-bold text-zinc-500 text-xs uppercase tracking-widest text-center">Day 2: Image</th>
-                <th className="px-8 py-5 font-bold text-zinc-500 text-xs uppercase tracking-widest text-center">Day 3: Post</th>
-                <th className="px-8 py-5 font-bold text-zinc-500 text-xs uppercase tracking-widest text-center">Status</th>
-                <th className="px-8 py-5 font-bold text-zinc-500 text-xs uppercase tracking-widest text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100">
-              {topics.map((topic) => {
-                const sched = getTopicSchedule(topic.createdAt);
-                return (
-                  <tr key={topic.id} className="hover:bg-zinc-50/50 transition-colors">
-                    <td className="px-8 py-6">
-                      <p className="font-bold text-lg mb-1">{topic.title}</p>
-                      <div className="flex items-center gap-2 text-xs text-zinc-400">
-                        <Calendar className="w-3 h-3" />
-                        <span>Started {format(new Date(topic.createdAt), 'MMM d')}</span>
-                      </div>
-                    </td>
-                    <td className="px-8 py-6">
-                      <div className="flex flex-col items-center gap-2">
-                        <Checkbox 
-                          checked={topic.stages.writing.completed} 
-                          onChange={() => toggleStage(topic, 'writing')} 
-                        />
-                        <span className={cn(
-                          "text-[10px] font-bold uppercase",
-                          sched.currentStage === 'writing' ? "text-orange-600" : "text-zinc-300"
-                        )}>
-                          {sched.currentStage === 'writing' ? "Today's Task" : format(sched.day1, 'MMM d')}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-8 py-6">
-                      <div className="flex flex-col items-center gap-2">
-                        <Checkbox 
-                          checked={topic.stages.image.completed} 
-                          onChange={() => toggleStage(topic, 'image')} 
-                        />
-                        <span className={cn(
-                          "text-[10px] font-bold uppercase",
-                          sched.currentStage === 'image' ? "text-orange-600" : "text-zinc-300"
-                        )}>
-                          {sched.currentStage === 'image' ? "Today's Task" : format(sched.day2, 'MMM d')}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-8 py-6">
-                      <div className="flex flex-col items-center gap-2">
-                        <Checkbox 
-                          checked={topic.stages.posting.completed} 
-                          onChange={() => toggleStage(topic, 'posting')} 
-                        />
-                        <span className={cn(
-                          "text-[10px] font-bold uppercase",
-                          sched.currentStage === 'posting' ? "text-orange-600" : "text-zinc-300"
-                        )}>
-                          {sched.currentStage === 'posting' ? "Today's Task" : format(sched.day3, 'MMM d')}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-8 py-6 text-center">
-                      {topic.progress === 3 ? (
-                        <div className="inline-flex items-center gap-2 bg-green-50 text-green-700 px-4 py-2 rounded-full font-bold text-xs">
-                          <CheckCircle2 className="w-4 h-4" />
-                          PUBLISHED
-                        </div>
-                      ) : (
-                        <div className={cn(
-                          "inline-flex items-center gap-2 px-4 py-2 rounded-full font-bold text-xs",
-                          sched.diff > 2 ? "bg-red-50 text-red-700" : "bg-zinc-100 text-zinc-600"
-                        )}>
-                          {sched.diff > 2 ? <AlertTriangle className="w-4 h-4 animate-pulse" /> : <Clock className="w-4 h-4" />}
-                          {sched.diff > 2 ? "OVERDUE" : `DAY ${sched.diff + 1}`}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-8 py-6 text-right">
-                      <Button variant="ghost" size="icon" onClick={() => deleteTopic(topic.id)}>
-                        <Trash2 className="w-5 h-5 text-zinc-300 hover:text-red-500" />
-                      </Button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        {/* Desktop Table Grouped by Keyword */}
+        <div className="hidden lg:block space-y-12">
+          {Object.entries(
+            topics.reduce((acc, topic) => {
+              if (!acc[topic.keyword]) acc[topic.keyword] = [];
+              acc[topic.keyword].push(topic);
+              return acc;
+            }, {} as Record<string, Topic[]>)
+          ).map(([keyword, keywordTopics]) => (
+            <div key={keyword} className="space-y-4">
+              <div className="flex items-center gap-3 px-2">
+                <div className="h-8 w-1.5 bg-orange-500 rounded-full" />
+                <h2 className="text-2xl font-black tracking-tight text-zinc-800 uppercase">{keyword}</h2>
+                <span className="text-xs font-bold text-zinc-400 bg-zinc-100 px-2 py-1 rounded-md">{keywordTopics.length} Topics</span>
+              </div>
+              <div className="bg-white rounded-3xl border border-zinc-200 shadow-sm overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-zinc-50 border-b border-zinc-200">
+                    <tr>
+                      <th className="px-8 py-5 font-bold text-zinc-500 text-xs uppercase tracking-widest">Topic & Schedule</th>
+                      <th className="px-8 py-5 font-bold text-zinc-500 text-xs uppercase tracking-widest text-center">Day 1: Write</th>
+                      <th className="px-8 py-5 font-bold text-zinc-500 text-xs uppercase tracking-widest text-center">Day 2: Image</th>
+                      <th className="px-8 py-5 font-bold text-zinc-500 text-xs uppercase tracking-widest text-center">Day 3: Post</th>
+                      <th className="px-8 py-5 font-bold text-zinc-500 text-xs uppercase tracking-widest text-center">Status</th>
+                      <th className="px-8 py-5 font-bold text-zinc-500 text-xs uppercase tracking-widest text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100">
+                    {keywordTopics.map((topic) => {
+                      const sched = getTopicSchedule(topic.createdAt);
+                      const isDoneToday = topic.lastCompletedAt && isSameDay(new Date(topic.lastCompletedAt), new Date());
+                      
+                      return (
+                        <tr key={topic.id} className="hover:bg-zinc-50/50 transition-colors">
+                          <td className="px-8 py-6">
+                            <p className="font-bold text-lg mb-1">{topic.title}</p>
+                            <div className="flex items-center gap-2 text-xs text-zinc-400">
+                              <Calendar className="w-3 h-3" />
+                              <span>Started {format(new Date(topic.createdAt), 'MMM d')}</span>
+                            </div>
+                          </td>
+                          <td className="px-8 py-6">
+                            <div className="flex flex-col items-center gap-2">
+                              <Checkbox 
+                                checked={topic.stages.writing.completed} 
+                                onChange={() => toggleStage(topic, 'writing')} 
+                                disabled={isDoneToday && !topic.stages.writing.completed}
+                              />
+                              <span className={cn(
+                                "text-[10px] font-bold uppercase",
+                                sched.currentStage === 'writing' ? "text-orange-600" : "text-zinc-300"
+                              )}>
+                                {sched.currentStage === 'writing' ? "Today's Task" : format(sched.day1, 'MMM d')}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-8 py-6">
+                            <div className="flex flex-col items-center gap-2">
+                              <Checkbox 
+                                checked={topic.stages.image.completed} 
+                                onChange={() => toggleStage(topic, 'image')} 
+                                disabled={isDoneToday && !topic.stages.image.completed}
+                              />
+                              <span className={cn(
+                                "text-[10px] font-bold uppercase",
+                                sched.currentStage === 'image' ? "text-orange-600" : "text-zinc-300"
+                              )}>
+                                {sched.currentStage === 'image' ? "Today's Task" : format(sched.day2, 'MMM d')}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-8 py-6">
+                            <div className="flex flex-col items-center gap-2">
+                              <Checkbox 
+                                checked={topic.stages.posting.completed} 
+                                onChange={() => toggleStage(topic, 'posting')} 
+                                disabled={isDoneToday && !topic.stages.posting.completed}
+                              />
+                              <span className={cn(
+                                "text-[10px] font-bold uppercase",
+                                sched.currentStage === 'posting' ? "text-orange-600" : "text-zinc-300"
+                              )}>
+                                {sched.currentStage === 'posting' ? "Today's Task" : format(sched.day3, 'MMM d')}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-8 py-6 text-center">
+                            {topic.progress === 3 ? (
+                              <div className="inline-flex items-center gap-2 bg-green-50 text-green-700 px-4 py-2 rounded-full font-bold text-xs">
+                                <CheckCircle2 className="w-4 h-4" />
+                                PUBLISHED
+                              </div>
+                            ) : (
+                              <div className={cn(
+                                "inline-flex items-center gap-2 px-4 py-2 rounded-full font-bold text-xs",
+                                sched.diff > 2 ? "bg-red-50 text-red-700" : "bg-zinc-100 text-zinc-600"
+                              )}>
+                                {sched.diff > 2 ? <AlertTriangle className="w-4 h-4 animate-pulse" /> : <Clock className="w-4 h-4" />}
+                                {sched.diff > 2 ? "OVERDUE" : `DAY ${sched.diff + 1}`}
+                              </div>
+                            )}
+                            {isDoneToday && topic.progress < 3 && (
+                              <p className="text-[9px] font-bold text-orange-500 mt-2 uppercase tracking-tighter">Daily Task Done</p>
+                            )}
+                          </td>
+                          <td className="px-8 py-6 text-right">
+                            <Button variant="ghost" size="icon" onClick={() => deleteTopic(topic.id)}>
+                              <Trash2 className="w-5 h-5 text-zinc-300 hover:text-red-500" />
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
         </div>
 
-        {/* Mobile View (Cards) */}
-        <div className="lg:hidden space-y-6">
-          {topics.map((topic) => {
-            const sched = getTopicSchedule(topic.createdAt);
-            return (
-              <motion.div 
-                key={topic.id}
-                layout
-                className="bg-white p-6 rounded-3xl border border-zinc-200 shadow-sm space-y-6"
-              >
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="text-xl font-bold leading-tight">{topic.title}</h3>
-                    <p className="text-xs text-zinc-400 mt-1">Started {format(new Date(topic.createdAt), 'MMM d, yyyy')}</p>
-                  </div>
-                  <Button variant="ghost" size="icon" onClick={() => deleteTopic(topic.id)}>
-                    <Trash2 className="w-5 h-5 text-zinc-300" />
-                  </Button>
-                </div>
-
-                <div className="grid grid-cols-3 gap-4">
-                  {[
-                    { key: 'writing', label: 'Write', day: sched.day1 },
-                    { key: 'image', label: 'Image', day: sched.day2 },
-                    { key: 'posting', label: 'Post', day: sched.day3 }
-                  ].map((s) => (
-                    <div key={s.key} className="flex flex-col items-center gap-2">
-                      <Checkbox 
-                        checked={topic.stages[s.key as keyof Topic['stages']].completed} 
-                        onChange={() => toggleStage(topic, s.key as keyof Topic['stages'])} 
-                      />
-                      <p className="text-[10px] font-bold uppercase text-zinc-400">{s.label}</p>
-                      <p className={cn(
-                        "text-[9px] font-medium px-2 py-0.5 rounded-full",
-                        sched.currentStage === s.key ? "bg-orange-100 text-orange-700" : "bg-zinc-100 text-zinc-500"
-                      )}>
-                        {format(s.day, 'MMM d')}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="pt-4 border-t border-zinc-100 flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <div className="w-24 h-2 bg-zinc-100 rounded-full overflow-hidden">
-                      <div 
-                        className={cn("h-full transition-all", topic.progress === 3 ? "bg-green-500" : "bg-zinc-900")} 
-                        style={{ width: `${(topic.progress / 3) * 100}%` }}
-                      />
-                    </div>
-                    <span className="text-[10px] font-bold text-zinc-400">{topic.progress}/3</span>
-                  </div>
+        {/* Mobile View Grouped by Keyword */}
+        <div className="lg:hidden space-y-12">
+          {Object.entries(
+            topics.reduce((acc, topic) => {
+              if (!acc[topic.keyword]) acc[topic.keyword] = [];
+              acc[topic.keyword].push(topic);
+              return acc;
+            }, {} as Record<string, Topic[]>)
+          ).map(([keyword, keywordTopics]) => (
+            <div key={keyword} className="space-y-6">
+              <div className="flex items-center gap-3 px-2">
+                <div className="h-6 w-1 bg-orange-500 rounded-full" />
+                <h2 className="text-xl font-black tracking-tight text-zinc-800 uppercase">{keyword}</h2>
+              </div>
+              <div className="space-y-6">
+                {keywordTopics.map((topic) => {
+                  const sched = getTopicSchedule(topic.createdAt);
+                  const isDoneToday = topic.lastCompletedAt && isSameDay(new Date(topic.lastCompletedAt), new Date());
                   
-                  {topic.progress === 3 ? (
-                    <span className="text-xs font-bold text-green-600 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" />
-                      PUBLISHED
-                    </span>
-                  ) : (
-                    <span className={cn(
-                      "text-xs font-bold flex items-center gap-1",
-                      sched.diff > 2 ? "text-red-600" : "text-zinc-500"
-                    )}>
-                      {sched.diff > 2 ? <AlertTriangle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                      {sched.diff > 2 ? "OVERDUE" : `DAY ${sched.diff + 1}`}
-                    </span>
-                  )}
-                </div>
-              </motion.div>
-            );
-          })}
+                  return (
+                    <motion.div 
+                      key={topic.id}
+                      layout
+                      className="bg-white p-6 rounded-3xl border border-zinc-200 shadow-sm space-y-6"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="text-xl font-bold leading-tight">{topic.title}</h3>
+                          <p className="text-xs text-zinc-400 mt-1">Started {format(new Date(topic.createdAt), 'MMM d, yyyy')}</p>
+                        </div>
+                        <Button variant="ghost" size="icon" onClick={() => deleteTopic(topic.id)}>
+                          <Trash2 className="w-5 h-5 text-zinc-300" />
+                        </Button>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-4">
+                        {[
+                          { key: 'writing', label: 'Write', day: sched.day1 },
+                          { key: 'image', label: 'Image', day: sched.day2 },
+                          { key: 'posting', label: 'Post', day: sched.day3 }
+                        ].map((s) => (
+                          <div key={s.key} className="flex flex-col items-center gap-2">
+                            <Checkbox 
+                              checked={topic.stages[s.key as keyof Topic['stages']].completed} 
+                              onChange={() => toggleStage(topic, s.key as keyof Topic['stages'])} 
+                              disabled={isDoneToday && !topic.stages[s.key as keyof Topic['stages']].completed}
+                            />
+                            <p className="text-[10px] font-bold uppercase text-zinc-400">{s.label}</p>
+                            <p className={cn(
+                              "text-[9px] font-medium px-2 py-0.5 rounded-full",
+                              sched.currentStage === s.key ? "bg-orange-100 text-orange-700" : "bg-zinc-100 text-zinc-500"
+                            )}>
+                              {format(s.day, 'MMM d')}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="pt-4 border-t border-zinc-100 flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                          <div className="w-24 h-2 bg-zinc-100 rounded-full overflow-hidden">
+                            <div 
+                              className={cn("h-full transition-all", topic.progress === 3 ? "bg-green-500" : "bg-zinc-900")} 
+                              style={{ width: `${(topic.progress / 3) * 100}%` }}
+                            />
+                          </div>
+                          <span className="text-[10px] font-bold text-zinc-400">{topic.progress}/3</span>
+                        </div>
+                        
+                        {topic.progress === 3 ? (
+                          <span className="text-xs font-bold text-green-600 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" />
+                            PUBLISHED
+                          </span>
+                        ) : (
+                          <div className="text-right">
+                            <span className={cn(
+                              "text-xs font-bold flex items-center gap-1 justify-end",
+                              sched.diff > 2 ? "text-red-600" : "text-zinc-500"
+                            )}>
+                              {sched.diff > 2 ? <AlertTriangle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                              {sched.diff > 2 ? "OVERDUE" : `DAY ${sched.diff + 1}`}
+                            </span>
+                            {isDoneToday && (
+                              <p className="text-[8px] font-bold text-orange-500 uppercase">Daily Task Done</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
 
         {topics.length === 0 && (
@@ -441,19 +508,33 @@ export default function App() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
-                className="bg-white p-6 rounded-3xl border border-zinc-200 shadow-lg flex flex-col sm:flex-row gap-4"
+                className="bg-white p-8 rounded-3xl border border-zinc-200 shadow-lg space-y-6"
               >
-                <input 
-                  type="text" 
-                  placeholder="What's the topic title?" 
-                  className="flex-1 h-12 px-5 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-zinc-900 transition-all"
-                  value={newTopicTitle}
-                  onChange={(e) => setNewTopicTitle(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddTopic()}
-                  autoFocus
-                />
-                <div className="flex gap-2">
-                  <Button onClick={handleAddTopic} className="flex-1 sm:flex-none h-12 px-8">Save Topic</Button>
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 ml-1">Keyword / Category</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g., Tech, Lifestyle, Cooking..." 
+                      className="w-full h-12 px-5 mt-1 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-zinc-900 transition-all"
+                      value={newTopicKeyword}
+                      onChange={(e) => setNewTopicKeyword(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 ml-1">Topic Title</label>
+                    <input 
+                      type="text" 
+                      placeholder="What's the topic title?" 
+                      className="w-full h-12 px-5 mt-1 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-zinc-900 transition-all"
+                      value={newTopicTitle}
+                      onChange={(e) => setNewTopicTitle(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddTopic()}
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <Button onClick={handleAddTopic} className="flex-1 h-12 px-8">Save Topic</Button>
                   <Button variant="outline" onClick={() => setIsAddOpen(false)} className="h-12">Cancel</Button>
                 </div>
               </motion.div>
@@ -464,17 +545,28 @@ export default function App() {
                 exit={{ opacity: 0, y: 10 }}
                 className="bg-white p-8 rounded-3xl border border-zinc-200 shadow-lg space-y-6"
               >
-                <div>
-                  <h3 className="text-xl font-bold mb-1">Bulk Upload</h3>
-                  <p className="text-sm text-zinc-500">Paste multiple topics, one per line.</p>
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 ml-1">Keyword for this Batch</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g., Tech, Lifestyle, Cooking..." 
+                      className="w-full h-12 px-5 mt-1 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-zinc-900 transition-all"
+                      value={bulkKeyword}
+                      onChange={(e) => setBulkKeyword(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 ml-1">Topics (One per line)</label>
+                    <textarea 
+                      className="w-full h-48 p-5 mt-1 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-zinc-900 transition-all text-lg"
+                      placeholder="Topic 1&#10;Topic 2&#10;Topic 3..."
+                      value={bulkText}
+                      onChange={(e) => setBulkText(e.target.value)}
+                    />
+                  </div>
                 </div>
-                <textarea 
-                  className="w-full h-48 p-5 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-zinc-900 transition-all text-lg"
-                  placeholder="Topic 1&#10;Topic 2&#10;Topic 3..."
-                  value={bulkText}
-                  onChange={(e) => setBulkText(e.target.value)}
-                />
-                <div className="flex justify-end gap-3">
+                <div className="flex justify-end gap-3 pt-2">
                   <Button variant="outline" onClick={() => setIsBulkOpen(false)} className="h-12 px-8">Cancel</Button>
                   <Button onClick={handleBulkUpload} className="h-12 px-8">Import All</Button>
                 </div>

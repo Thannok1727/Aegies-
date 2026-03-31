@@ -17,6 +17,7 @@ export interface Topic {
   id: string;
   userId: string;
   title: string;
+  keyword: string;
   status: 'draft' | 'published';
   progress: number; // 0, 1, 2, 3
   stages: {
@@ -27,4 +28,5 @@ export interface Topic {
   order: number;
   createdAt: string;
   updatedAt: string;
+  lastCompletedAt?: string;
 }
