@@ -3,20 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  collection, 
-  doc, 
-  updateDoc, 
-  deleteDoc, 
-  onSnapshot, 
-  query, 
-  where, 
-  orderBy, 
-  addDoc
-} from 'firebase/firestore';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth, db, signInWithGoogle, logout, handleFirestoreError } from './lib/firebase';
+import React, { useState, useEffect } from 'react';
 import { Topic } from './types';
 import { cn } from './lib/utils';
 import { 
@@ -24,7 +11,6 @@ import {
   CheckCircle2, 
   Plus, 
   Upload, 
-  LogOut, 
   Loader2,
   Check,
   Clock,
@@ -92,7 +78,6 @@ const Checkbox = ({ checked, onChange, disabled }: { checked: boolean; onChange:
 // --- Main App ---
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [topics, setTopics] = useState<Topic[]>([]);
   const [isBulkOpen, setIsBulkOpen] = useState(false);
@@ -107,120 +92,99 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-    });
-    return () => unsubscribe();
+    // Load topics from localStorage
+    const savedTopics = localStorage.getItem('blogflow_topics');
+    if (savedTopics) {
+      try {
+        setTopics(JSON.parse(savedTopics));
+      } catch (e) {
+        console.error("Failed to parse topics", e);
+      }
+    }
+    setLoading(false);
   }, []);
 
   useEffect(() => {
-    if (!user) {
-      setTopics([]);
-      return;
+    // Save topics to localStorage whenever they change
+    if (!loading) {
+      localStorage.setItem('blogflow_topics', JSON.stringify(topics));
     }
+  }, [topics, loading]);
 
-    const q = query(
-      collection(db, 'topics'),
-      where('userId', '==', user.uid),
-      orderBy('order', 'asc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Topic));
-      setTopics(docs);
-    }, (error) => {
-      console.error("Error fetching topics:", error);
-    });
-
-    return () => unsubscribe();
-  }, [user]);
-
-  const handleAddTopic = async () => {
-    if (!user || !newTopicTitle.trim()) return;
-    try {
-      const newTopic: Omit<Topic, 'id'> = {
-        userId: user.uid,
-        title: newTopicTitle.trim(),
-        status: 'draft',
-        progress: 0,
-        stages: {
-          writing: { completed: false },
-          image: { completed: false },
-          posting: { completed: false }
-        },
-        order: topics.length,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      await addDoc(collection(db, 'topics'), newTopic);
-      setNewTopicTitle('');
-      setIsAddOpen(false);
-    } catch (error) {
-      handleFirestoreError(error, 'create', 'topics');
-    }
-  };
-
-  const handleBulkUpload = async () => {
-    if (!user || !bulkText.trim()) return;
-    const titles = bulkText.split('\n').filter(l => l.trim());
-    try {
-      const promises = titles.map((title, index) => {
-        const newTopic: Omit<Topic, 'id'> = {
-          userId: user.uid,
-          title: title.trim(),
-          status: 'draft',
-          progress: 0,
-          stages: {
-            writing: { completed: false },
-            image: { completed: false },
-            posting: { completed: false }
-          },
-          order: topics.length + index,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        return addDoc(collection(db, 'topics'), newTopic);
-      });
-      await Promise.all(promises);
-      setBulkText('');
-      setIsBulkOpen(false);
-    } catch (error) {
-      handleFirestoreError(error, 'create', 'topics');
-    }
-  };
-
-  const toggleStage = async (topic: Topic, stageKey: keyof Topic['stages']) => {
-    const newStages = { 
-      ...topic.stages, 
-      [stageKey]: { ...topic.stages[stageKey], completed: !topic.stages[stageKey].completed } 
+  const handleAddTopic = () => {
+    if (!newTopicTitle.trim()) return;
+    const newTopic: Topic = {
+      id: crypto.randomUUID(),
+      userId: 'local-user',
+      title: newTopicTitle.trim(),
+      status: 'draft',
+      progress: 0,
+      stages: {
+        writing: { completed: false },
+        image: { completed: false },
+        posting: { completed: false }
+      },
+      order: topics.length,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
-    
-    let progress = 0;
-    if (newStages.writing.completed) progress++;
-    if (newStages.image.completed) progress++;
-    if (newStages.posting.completed) progress++;
+    setTopics([...topics, newTopic]);
+    setNewTopicTitle('');
+    setIsAddOpen(false);
+  };
 
-    const status = progress === 3 ? 'published' : 'draft';
+  const handleBulkUpload = () => {
+    if (!bulkText.trim()) return;
+    const titles = bulkText.split('\n').filter(l => l.trim());
+    const newTopics: Topic[] = titles.map((title, index) => ({
+      id: crypto.randomUUID(),
+      userId: 'local-user',
+      title: title.trim(),
+      status: 'draft',
+      progress: 0,
+      stages: {
+        writing: { completed: false },
+        image: { completed: false },
+        posting: { completed: false }
+      },
+      order: topics.length + index,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }));
+    setTopics([...topics, ...newTopics]);
+    setBulkText('');
+    setIsBulkOpen(false);
+  };
 
-    try {
-      await updateDoc(doc(db, 'topics', topic.id), {
+  const toggleStage = (topic: Topic, stageKey: keyof Topic['stages']) => {
+    const newTopics: Topic[] = topics.map(t => {
+      if (t.id !== topic.id) return t;
+      
+      const newStages = { 
+        ...t.stages, 
+        [stageKey]: { ...t.stages[stageKey], completed: !t.stages[stageKey].completed } 
+      };
+      
+      let progress = 0;
+      if (newStages.writing.completed) progress++;
+      if (newStages.image.completed) progress++;
+      if (newStages.posting.completed) progress++;
+
+      const status: Topic['status'] = progress === 3 ? 'published' : 'draft';
+
+      return {
+        ...t,
         stages: newStages,
         progress,
         status,
         updatedAt: new Date().toISOString()
-      });
-    } catch (error) {
-      handleFirestoreError(error, 'update', `topics/${topic.id}`);
-    }
+      };
+    });
+    setTopics(newTopics);
   };
 
-  const deleteTopic = async (id: string) => {
-    try {
-      await deleteDoc(doc(db, 'topics', id));
-    } catch (error) {
-      handleFirestoreError(error, 'delete', `topics/${id}`);
-    }
+  const deleteTopic = (id: string) => {
+    setTopics(topics.filter(t => t.id !== id));
   };
 
   const getTopicSchedule = (createdAt: string) => {
@@ -246,27 +210,6 @@ export default function App() {
     );
   }
 
-  if (!user) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-zinc-50 p-6">
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="max-w-md w-full bg-white p-10 rounded-3xl shadow-xl shadow-zinc-200/50 border border-zinc-100 text-center"
-        >
-          <div className="w-20 h-20 bg-zinc-900 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-lg shadow-zinc-900/20">
-            <CheckCircle2 className="w-10 h-10 text-white" />
-          </div>
-          <h1 className="text-3xl font-bold mb-4 tracking-tight">BlogFlow</h1>
-          <p className="text-zinc-500 mb-10 leading-relaxed">The ultimate 3-day blogging progress tracker. One task a day, three days to publish.</p>
-          <Button onClick={signInWithGoogle} className="w-full h-14 text-lg">
-            Get Started
-          </Button>
-        </motion.div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900 pb-20">
       {/* Header */}
@@ -283,10 +226,6 @@ export default function App() {
             <p className="text-sm font-bold">{format(currentTime, 'EEEE, MMM do')}</p>
             <p className="text-xs text-zinc-400">{format(currentTime, 'h:mm a')}</p>
           </div>
-          <Button variant="outline" size="sm" onClick={logout} className="rounded-full">
-            <LogOut className="w-4 h-4 mr-2" />
-            Sign Out
-          </Button>
         </div>
       </header>
 
